@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Arctic circle V2</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script type="text/javascript">
+    const covered = 3;
+
+    class squareCoverage {
+      constructor(squares, tiles) {
+        this.tiles = tiles;
+        this.squares = squares;
+      }
+
+      get() {
+        this.coveredSquares = [];
+        this.copySquaresToCovered();
+        for (var tile of this.tiles) {
+          this.setCoverageOfTile(tile);
+        };
+        return this.coveredSquares;
+      }
+
+      copySquaresToCovered() {
+        for (var row of this.squares)
+          this.coveredSquares.push([...row]);
+      }
+
+      setCoverageOfTile(tile) {
+        this.coveredSquares[tile.y][tile.x] = covered;
+        if (tile.vertical)
+          this.coveredSquares[tile.y + 1][tile.x] = covered;
+        else
+          this.coveredSquares[tile.y][tile.x + 1] = covered;
+      }
+    }
+
+    class tileGenerator {
+      constructor(coveredSquares, tiles) {
+        this.tiles = tiles;
+        this.coveredSquares = coveredSquares;
+      }
+
+      get() {
+        this.fillEmptySquares();
+        return this.tiles;
+      }
+
+      fillEmptySquares() {
+        var length = this.coveredSquares.length;
+        for (var y = 0; y < length; y++) {
+          for (var x = 0; x < length; x++) {
+            let square = this.coveredSquares[y][x];
+            if (square > 0 && square < covered && this.isFree2x2(x, y))
+              this.fill2x2WithTiles(x, y);
+          }
+        }
+      }
+
+      isFree2x2(x, y) {
+        return Boolean(
+          this.coveredSquares[y][x] < covered &&
+          this.coveredSquares[y + 1][x] < covered &&
+          this.coveredSquares[y][x + 1] < covered &&
+          this.coveredSquares[y + 1][x + 1] < covered);
+      }
+
+      fill2x2WithTiles(x, y) {
+        if (randomTrueOrFalse())
+          this.fill2x2WithVerticalTiles(x, y)
+        else
+          this.fill2x2WithHorizontalTiles(x, y);
+        this.set2x2Covered(x, y);
+      }
+
+      set2x2Covered(x, y) {
+        this.coveredSquares[y][x] = 3;
+        this.coveredSquares[y + 1][x] = 3;
+        this.coveredSquares[y][x + 1] = 3;
+        this.coveredSquares[y + 1][x + 1] = 3;
+      }
+
+      fill2x2WithVerticalTiles(x, y) {
+        this.addTile(x + 1, y, true, 1);
+        this.addTile(x, y, true, -1);
+      }
+
+      fill2x2WithHorizontalTiles(x, y) {
+        this.addTile(x, y + 1, false, 1);
+        this.addTile(x, y, false, -1);
+      }
+
+      addTile(x, y, verticalFlag, pushDirection) {
+        this.tiles.push({
+          x: x,
+          y: y,
+          vertical: verticalFlag,
+          pushDirection: pushDirection,
+          delete: false
+        });
+      }
+
+    }
+
+    class squaresExtend {
+      constructor(oldSquares) {
+        this.squares = [];
+        this.oldSquares = oldSquares;
+      }
+      get() {
+        this.extendExistingRows();
+        this.extendWithNewRows();
+        return this.squares;
+      }
+
+      getOldLastRow(matrix) {
+        return [...this.oldSquares[
+          this.oldSquares.length - 1]];
+      }
+
+      getOldFirstRow() {
+        return [...this.oldSquares[0]];
+      }
+
+      extendWithNewRows() {
+        this.addNewLastRow();
+        this.addNewFirstRow();
+      }
+
+      addNewFirstRow() {
+        this.squares.unshift(this.widenRow(this.getOldLastRow()));
+      }
+
+      addNewLastRow() {
+        this.squares.push(this.widenRow(this.getOldFirstRow()));
+      }
+
+      extendExistingRows() {
+        for (var row of this.oldSquares) {
+          this.squares.push(
+            [...this.extendRow(row)]);
+        }
+      }
+
+      extendRow(row) {
+        return (this.isFullyFilled(row) ?
+          this.addSquaresToRow(row) :
+          this.widenRow(this.extendRow(this.narrowRow(row))));
+      }
+
+      addSquaresToRow(row) {
+        return [row[row.length - 1]].concat(row).concat(row[0]);
+      }
+
+      isFullyFilled(row) {
+        return row[0] !== 0;
+      }
+
+      narrowRow(row) {
+        return row.slice(1, row.length - 1);
+      }
+
+      widenRow(line) {
+        var result = [...line];
+        result.unshift(0);
+        result.push(0);
+        return result;
+      }
+    }
+
+    class tilesExtend {
+      constructor(squares, tiles) {
+        this.tiles = [...tiles];
+        this.squares = squares;
+        this.coveredSquares = [];
+      }
+
+      get() {
+        this.tiles.forEach(this.moveOldTile);
+        pushGeneration(this.squares, this.tiles);
+        this.eliminateColliding();
+        pushGeneration(this.squares, this.tiles);
+        this.shiftTiles();
+        pushGeneration(this.squares, this.tiles);
+        this.coveredSquares = new squareCoverage(this.squares, this.tiles).get();
+        return new tileGenerator(this.coveredSquares, this.tiles).get();
+      }
+
+      eliminateColliding() {
+        var index = 0;
+        for (var tile of this.tiles) {
+          this.checkCollision(tile, index);
+          index++;
+        };
+        var tiles = [];
+        for (var i = 0; i < this.tiles.length; i++) {
+          tile = this.tiles[i];
+          if (!tile.delete) tiles.push(tile);
+        }
+        this.tiles = tiles;
+      }
+
+      checkCollision(tile, index) {
+        let compareIndex = this.searchCompareTileIndex(tile);
+        let array = this.tiles;
+        if (compareIndex > 0) {
+          tile.delete = true;
+        }
+      }
+
+      searchCompareTileIndex(tile) {
+        var checkX = tile.x;
+        var checkY = tile.y;
+        if (tile.vertical) checkX += tile.pushDirection;
+        else checkY += tile.pushDirection;
+        for (var compare of this.tiles) {
+          if (compare.x === checkX &&
+            compare.y === checkY &&
+            compare.vertical == tile.vertical &&
+            compare.pushDirection != tile.pushDirection)
+            return this.tiles.indexOf(compare);
+        }
+      }
+
+      shiftTiles() {
+        for (var tile of this.tiles) {
+          tile.x = (tile.vertical ? tile.x + tile.pushDirection : tile.x);
+          tile.y = (tile.vertical ? tile.y : tile.y + tile.pushDirection);
+          tile.type = (tile.type === 1 ? 1 : 2);
+        }
+      }
+
+      moveOldTile(value) {
+        value.x++;
+        value.y++;
+      }
+
+    }
+    class diamondMatrix {
+      constructor(grade) {
+        this.grade = grade;
+        this.matrix = { squares: [], tiles: [] };
+      };
+
+      generate(oldMatrix) {
+        if (this.grade === 1) {
+          this.getInitialMatrix();
+          pushGeneration(this.matrix.squares, this.matrix.tiles)
+        } else {
+          this.lowerMatrix = new diamondMatrix(this.grade - 1);
+          this.lowerMatrix.generate();
+          this.extend();
+        }
+      }
+
+      getInitialMatrix() {
+        this.matrix.squares = [[1, 2], [2, 1]];
+        pushGeneration(this.matrix.squares, this.matrix.tiles)
+        this.coveredSquares = new squareCoverage(this.matrix.squares, this.matrix.tiles).get();
+        this.matrix.tiles = new tileGenerator(this.coveredSquares, this.matrix.tiles).get();
+      }
+
+      extend() {
+        this.matrix.squares = new squaresExtend(this.lowerMatrix.matrix.squares).get();
+        this.matrix.tiles = new tilesExtend(this.matrix.squares, this.lowerMatrix.matrix.tiles).get();
+        pushGeneration(this.matrix.squares, this.matrix.tiles);
+      }
+    }
+
+    class diamondPlotter {
+      constructor(grade, size, ctx) {
+        this.size = size;
+        this.graphic = ctx;
+        this.squareSize = (grade < 20) ? 18 : size / grade / 2;
+        this.tileIndex = 0;
+      }
+
+      plot(matrix) {
+        this.grade = matrix.squares.length / 2;
+        this.startingPoint = this.size / 2 - this.grade * this.squareSize;
+        this.clear();
+        this.squares = matrix.squares;
+        this.tiles = matrix.tiles;
+        this.plotSquares(matrix);
+        for (var tile of this.tiles) this.plotTile(tile);
+      }
+
+      plotSquares() {
+        this.graphic.fillStyle = "#999999";
+        this.graphic.strokeStyle = "#999999";
+        for (var x = 0; x < this.squares.length; x++)
+          for (var y = 0; y < this.squares.length; y++)
+            this.plotSquare(x, y, this.squares[y][x]);
+      }
+
+      clear() {
+        this.graphic.clearRect(0, 0, this.size, this.size);
+      }
+
+      plotTile(tile) {
+        var { x, y, width, height } = this.getTileCoordinates(tile);
+        this.setFillStyle(tile);
+        this.graphic.strokeRect(x, y, width, height);
+        this.graphic.fillRect(x, y, width, height);
+      }
+
+      plotSquare(x, y, squareValue) {
+        var width = this.squareSize;
+        var height = width;
+        if (squareValue != 0) {
+          var { x, y } = this.getSquareCoordinates(x, y);
+          this.graphic.strokeRect(x, y, width, height);
+          if (squareValue === 2)
+            this.graphic.fillRect(x, y, width, height);
+        }
+      }
+
+      setFillStyle(tile) {
+        var type = this.squares[tile.y][tile.x];
+        this.graphic.fillStyle =
+          (tile.vertical) ?
+            (type === 1) ? "red" : "blue"
+            : (type === 1) ? "yellow" : "green";
+      }
+
+      getTileCoordinates(tile) {
+        var x = this.startingPoint + tile.x * this.squareSize;
+        var y = this.startingPoint + tile.y * this.squareSize;
+        var width = (tile.vertical ? this.squareSize : 2 * this.squareSize);
+        var height = (tile.vertical ? this.squareSize * 2 : this.squareSize);
+        return { x, y, width, height };
+      }
+
+      getSquareCoordinates(x, y) {
+        var x = this.startingPoint + x * this.squareSize;
+        var y = this.startingPoint + y * this.squareSize;
+        return { x, y };
+      }
+    }
+
+    var generations = [];
+    var index = 0;
+    var started = false;
+    var stopped = false;
+
+    function randomTrueOrFalse() {
+      return Math.round(Math.random()) === 0;
+    }
+
+    function stop() {
+      stopped = true;
+      started = false;
+      generations = [];
+      index = 0;
+    }
+
+    function draw() {
+      started = true;
+      stopped = false;
+      document.getElementById("showArea").focus();
+      var grade = parseInt(document.getElementById("grade").value);
+      model = new diamondMatrix(grade);
+      model.generate();
+      plotter = new diamondPlotter(
+        grade,
+        750,
+        document.getElementById('showArea').getContext('2d'));
+      window.requestAnimationFrame(plotGeneration);
+    }
+
+    function plotGeneration() {
+      if (!stopped) {
+        plotter.plot(generations[index]);
+        index++;
+        if (index === generations.length) started = false;
+        if (started) window.setTimeout(plotGeneration, 1000);
+      }
+    }
+
+    function pushGeneration(squares, tiles) {
+      let squaresCopy = [];
+      let tilesCopy = [];
+      for (var row of squares) squaresCopy.push([...row]);
+      for (var tile of tiles) tilesCopy.push({ ...tile });
+      generations.push(
+        {
+          squares: squaresCopy,
+          tiles: tilesCopy
+        });
+    }
+
+    $(document).keypress(function (e) {
+      if (started)
+        stopped = !stopped;
+      if (!stopped) window.requestAnimationFrame(plotGeneration);
+    }); 
+  </script>
+</head>
+
+<body>
+  <div style="width:100%">
+    <div style="width:800; float:left">
+      <canvas id="showArea" width="750" height="750" onkeypress="toggleStopped()"></canvas>
+    </div>
+    <div style="width:400px;float:left">
+      &nbsp; Grade: <input id="grade" type="number" value="1">
+      <button id="go" onclick="draw()">Go</button>
+      <button id="stop" onclick="stop()">Stop</button><br>
+      <div style="width:380px; padding:10px; background-color: #ddd; float:left">
+        <p>Type the grade (&ge;1) and press Go. Press any key to halt the animation. Press Stop to end the animation</p>
+      </div>
+    </div>
+  </div>
+</body>
+
+</html>
